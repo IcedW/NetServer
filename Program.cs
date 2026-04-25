@@ -1,73 +1,60 @@
-using System;
-using System.Net;
-using System.Text;
-using System.IO;
-using System.Threading.Tasks;
-
-class Program
+﻿namespace Client
 {
-    static async Task Main()
+    using System.Text;
+
+    class Program
     {
-        string port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
-        string url = $"http://+:{port}/send/";
-        
-        HttpListener listener = new HttpListener();
-        listener.Prefixes.Add(url);
-        listener.Start();
-        Console.WriteLine($"Сервер запущено на {url}");
-
-        while (true)
+        static async Task Main()
         {
-            var context = await listener.GetContextAsync();
-            _ = Task.Run(() => ProcessRequest(context));
-        }
-    }
+            Console.OutputEncoding = System.Text.Encoding.UTF8;
 
-    static async Task ProcessRequest(HttpListenerContext context)
-    {
-        HttpListenerRequest request = context.Request;
-        HttpListenerResponse response = context.Response;
+            using var client = new HttpClient();
+            var serverUrl = "https://uniquename3342.onrender.com/send";
+            var cts = new CancellationTokenSource();
 
-        // add CORS headers to all responses (for JavaScript example)
-        response.AddHeader("Access-Control-Allow-Origin", "*");
-        response.AddHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-        response.AddHeader("Access-Control-Allow-Headers", "Content-Type");
+            _ = Task.Run(() =>
+            {
+                while (true)
+                {
+                    Console.WriteLine("Введіть число (або 'exit' для виходу): ");
+                    var input = Console.ReadLine();
+                    if (input?.ToLower() == "exit")
+                    {
+                        cts.Cancel();
+                        break;
+                    }
 
-        // handle preflight OPTIONS request (for JavaScript example)
-        if (request.HttpMethod == "OPTIONS")
-        {
-            response.StatusCode = 200;
-            response.Close();
-            return;
+                    _ = SendNumberAsync(client, serverUrl, input);
+                }
+            });
+
+            while (!cts.Token.IsCancellationRequested)
+            {
+                await Task.Delay(500);
+            }
         }
 
-        if (request.HttpMethod != "POST")
+        static async Task SendNumberAsync(HttpClient client, string url, string number)
         {
-            response.StatusCode = 405;
-            await response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes("Тільки POST-запити"));
-            response.Close();
-            return;
+            try
+            {
+                var content = new StringContent(number, Encoding.UTF8, "text/plain");
+                var response = await client.PostAsync(url, content);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    var result = await response.Content.ReadAsStringAsync();
+                    Console.Title = "Сервер відповів: " + result;
+                }
+                else
+                {
+                    Console.WriteLine($"Помилка {response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Помилка відправлення: {ex.Message}");
+            }
         }
-
-        using var reader = new StreamReader(request.InputStream, Encoding.UTF8);
-        string numberStr = await reader.ReadToEndAsync();
-
-        if (int.TryParse(numberStr, out int number))
-        {
-            int result = number + 1;
-            byte[] buffer = Encoding.UTF8.GetBytes(result.ToString());
-
-            response.ContentType = "text/plain";
-            response.ContentLength64 = buffer.Length;
-            await response.OutputStream.WriteAsync(buffer, 0, buffer.Length);
-            Console.WriteLine($"Отримано: {number}, відправлено: {result}");
-        }
-        else
-        {
-            response.StatusCode = 400;
-            await response.OutputStream.WriteAsync(Encoding.UTF8.GetBytes("Помилка: очікувалося число."));
-        }
-
-        response.Close();
     }
 }
